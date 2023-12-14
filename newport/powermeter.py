@@ -1,5 +1,4 @@
-﻿from __future__ import division
-from drivepy.base.powermeter import BasePowerMeter, CommError, PowerMeterLibraryError
+﻿from drivepy.base.powermeter import BasePowerMeter, CommError, PowerMeterLibraryError
 import ctypes,time,string,numpy, os
 READ_BUFFER_SIZE=64
 DLL_NAME=os.path.join(os.path.dirname(os.path.realpath(__file__)),"usbdll.dll")
@@ -82,7 +81,7 @@ class PowerMeter(BasePowerMeter):
                 elif self.readPowerRaw()>self.rangeDic[self.range]:
                     # sometimes "PM:DS:Count?" doesn't work when saturating, but a normal read does
                     raise SaturatingError
-            if timeout: raise CommError, "Expected "+str(n)+" samples from power meter, but only received "+str(numValues)
+            if timeout: raise CommError("Expected "+str(n)+" samples from power meter, but only received "+str(numValues))
             # Write the get command
             self.connection.write("pm:ds:get? +"+str(int(n)))
             # Prepare some variables
@@ -138,7 +137,7 @@ class PowerMeter(BasePowerMeter):
                 elif mode=="max":
                     return maxPower
             else:
-                raise CommError, "The measured power was too large. Please enable the attenutator and restart the program"
+                raise CommError("The measured power was too large. Please enable the attenutator and restart the program")
         # Reduce the range if power smaller than 99% of the measurement limit of the next lowest range and no timeout has occured
         elif self.range > 0 and maxPower < 0.99*self.rangeDic[self.range-1] and self.t0 and (time.time()-self.t0) < self.timeout:
             self.setRange(self.range-1)
@@ -220,20 +219,20 @@ class USBConnection(object):
         self.readBufferSize=READ_BUFFER_SIZE
         try:
             self.lib=ctypes.WinDLL(DLL_NAME)
-        except Exception,e:
+        except Exception as e:
             raise PowerMeterLibraryError,"Could not load the power meter library " + DLL_NAME + ". \n" + e.args[0]
         # Open the usb device specified by pid
         s=self.lib.newp_usb_open_devices(pid,False,ctypes.byref(ctypes.c_int(0)))
         if s<0:
-            raise CommError, "Connection to pid=" + str(pid) + " could not be initialized and returned " + str(s)
+            raise CommError("Connection to pid=" + str(pid) + " could not be initialized and returned " + str(s))
         # Retrieve the device ID assigned above
         readBuffer=ctypes.create_string_buffer(1024)
         s=self.lib.newp_usb_get_device_info(readBuffer)
         if s<0:
-            raise CommError, "Connection to pid=" + str(pid) + " successful, but get_device_info failed and returned " + str(s)
+            raise CommError("Connection to pid=" + str(pid) + " successful, but get_device_info failed and returned " + str(s))
         deviceInfoList=readBuffer.value.split(',')
         if len(deviceInfoList)>2:
-            raise CommError, "More than one Newport instrument detected on the USB bus which is not supported"
+            raise CommError("More than one Newport instrument detected on the USB bus which is not supported")
         self.id=int(deviceInfoList[0])
     def __del__(self):
         """ Destructor method unitializes the USB connection """
@@ -250,7 +249,7 @@ class USBConnection(object):
         numBytesRead=ctypes.c_int(0)
         s=self.lib.newp_usb_get_ascii(self.id,readBuffer,self.readBufferSize,ctypes.byref(numBytesRead))
         if s<0:
-            raise CommError, "Reading from power meter was not succesful and returned " + str(s)
+            raise CommError("Reading from power meter was not succesful and returned " + str(s))
         return readBuffer.value
 
        
