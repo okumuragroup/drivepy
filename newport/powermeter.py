@@ -1,7 +1,7 @@
 ﻿from drivepy.base.powermeter import BasePowerMeter, CommError, PowerMeterLibraryError
 import ctypes,time,string,numpy, os
 READ_BUFFER_SIZE=64
-DLL_NAME=os.path.join(os.path.dirname(os.path.realpath(__file__)),"usbdll.dll")
+DLL_NAME="C:\Program Files\Newport\Newport USB Driver\Bin\usbdll.dll"
 SEP_STRING="\r\n"
 END_OF_DATA_STR = "End of Data\r\n"
 END_OF_HEADER_STR = "End of Header\r\n"
