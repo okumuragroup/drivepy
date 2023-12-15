@@ -1,7 +1,7 @@
 ﻿from drivepy.base.powermeter import BasePowerMeter, CommError, PowerMeterLibraryError
-import ctypes,time,string,numpy, os
+import ctypes,time,numpy
 READ_BUFFER_SIZE=64
-DLL_NAME="C:\Program Files\Newport\Newport USB Driver\Bin\usbdll.dll"
+DLL_NAME=r'C:\Program Files\Newport\Newport USB Driver\Bin\usbdll.dll'
 SEP_STRING="\r\n"
 END_OF_DATA_STR = "End of Data\r\n"
 END_OF_HEADER_STR = "End of Header\r\n"
@@ -12,8 +12,9 @@ class PowerMeter(BasePowerMeter):
     """ Creates a power meter object, from which we can take power meter readings using readPower() 
     or send commands/queries using sendCommand(command)."""
     def __init__(self,pid=0xcec7,*setupArgs):
-        """ initializes the power meter object. pid is the product id for the power meter from the file
-        NewportPwrMtr.inf e.g. in C:\Program Files\Newport\Newport USB Driver\Bin"""
+        ## initializes the power meter object. pid is the product id for the power meter from the file
+        ## NewportPwrMtr.inf e.g. in 'C:\Program Files\Newport\Newport USB Driver\Bin
+
         self.pid=pid
         self.connection=USBConnection(pid)
         self._setupMeter(*setupArgs)
@@ -29,7 +30,7 @@ class PowerMeter(BasePowerMeter):
             self.setRange(r)
             self.rangeDic[r]=self.getMaxPower()
 
-    def _setupMeter(self,wavelength=1300,autoRange=0,range=1,filterType=1,analogFilter=4,digitalFilter=10000,units=2):
+    def _setupMeter(self,wavelength=767,autoRange=0,range=2,filterType=1,analogFilter=4,digitalFilter=10000,units=2):
         """ routine to setup the power meter to a predetermined state"""
         self.setWavelength(wavelength)
         self.setUnits(units)
@@ -71,10 +72,10 @@ class PowerMeter(BasePowerMeter):
             self.connection.write("pm:ds:enable 1")
             # Wait for the samples to fill up
             timeout=False
-            t0=time.time()
+            self.t0=time.time()
             while not timeout:
                 numValues=int(self.connection.readFloat("PM:DS:Count?"))
-                delay=time.time()-t0
+                delay=time.time()-self.t0
                 timeout=delay > READ_TIMEOUT
                 if numValues >= n:
                     break
@@ -94,11 +95,11 @@ class PowerMeter(BasePowerMeter):
                 # Append the current read string
                 responseBuffer=responseBuffer+readStr
                 # See if END_OF_DATA_STR was found allowing for possibility that some of it is in last reading
-                endOfData=string.find(lastReadStr+readStr,END_OF_DATA_STR)>=0
+                endOfData= (lastReadStr+readStr).find(END_OF_DATA_STR) >=0
                 lastReadStr=readStr
             # Find the indices where the data starts and ends
-            dataStartIndex=string.find(responseBuffer,END_OF_HEADER_STR)+len(END_OF_HEADER_STR)
-            dataEndIndex=string.find(responseBuffer,END_OF_DATA_STR)
+            dataStartIndex=responseBuffer.find(END_OF_HEADER_STR) + len(END_OF_HEADER_STR)
+            dataEndIndex=responseBuffer.find(END_OF_DATA_STR)
             assert dataStartIndex!= -1 and dataEndIndex!=-1, "End of Header or End of Data message not found when reading from power meter"
             # Convert from newline separated string sequence to numpy array of floats and return
             dataSplit=responseBuffer[dataStartIndex:dataEndIndex].splitlines()
@@ -139,7 +140,7 @@ class PowerMeter(BasePowerMeter):
             else:
                 raise CommError("The measured power was too large. Please enable the attenutator and restart the program")
         # Reduce the range if power smaller than 99% of the measurement limit of the next lowest range and no timeout has occured
-        elif self.range > 0 and maxPower < 0.99*self.rangeDic[self.range-1] and self.t0 and (time.time()-self.t0) < self.timeout:
+        elif self.range > 0 and maxPower < 0.99*self.rangeDic[self.range-1] and self.t0 and (time.time()-self.t0) < READ_TIMEOUT:
             self.setRange(self.range-1)
             time.sleep(1)
             return self.readPower(tau,mode)
@@ -169,7 +170,8 @@ class PowerMeter(BasePowerMeter):
                 return self.connection.readFloat("PM:MAX:Power?")
             except Exception as e:
                 remeasure+=1
-        raise e
+                if remeasure > 4:
+                    raise e
 
     def setWavelength(self,wavelength):
         self.connection.write("PM:Lambda "+str(wavelength))
@@ -220,7 +222,7 @@ class USBConnection(object):
         try:
             self.lib=ctypes.WinDLL(DLL_NAME)
         except Exception as e:
-            raise PowerMeterLibraryError,"Could not load the power meter library " + DLL_NAME + ". \n" + e.args[0]
+            raise PowerMeterLibraryError("Could not load the power meter library " + DLL_NAME + ". \n" + e.args[0])
         # Open the usb device specified by pid
         s=self.lib.newp_usb_open_devices(pid,False,ctypes.byref(ctypes.c_int(0)))
         if s<0:
@@ -230,7 +232,7 @@ class USBConnection(object):
         s=self.lib.newp_usb_get_device_info(readBuffer)
         if s<0:
             raise CommError("Connection to pid=" + str(pid) + " successful, but get_device_info failed and returned " + str(s))
-        deviceInfoList=readBuffer.value.split(',')
+        deviceInfoList=readBuffer.value.split(b',')
         if len(deviceInfoList)>2:
             raise CommError("More than one Newport instrument detected on the USB bus which is not supported")
         self.id=int(deviceInfoList[0])
@@ -239,18 +241,22 @@ class USBConnection(object):
         self.lib.newp_usb_uninit_system()
     def write(self,writeString):
         """ Writes a single command to the USB device"""
-        s=self.lib.newp_usb_send_ascii(self.id, writeString+SEP_STRING, len(writeString+SEP_STRING))
+        s=self.lib.newp_usb_send_ascii(self.id, ctypes.create_string_buffer(bytes(writeString,'ascii')), len(writeString)+1)
         if s<0:
-            raise CommError, "Writing of command '" + writeString + "' was not succesful and returned " + str(s)
+            raise CommError("Writing of command '" + writeString + "' was not succesful and returned " + str(s))
     
     def read(self):
         """ Reads the response from power meter """
+        """
+        long EXPORT newp_usb_get_ascii_by_DeviceID (long DeviceID, unsigned char* Buffer, unsigned long
+        Length, unsigned long* BytesRead);
+        """
         readBuffer=ctypes.create_string_buffer(self.readBufferSize)
-        numBytesRead=ctypes.c_int(0)
+        numBytesRead=ctypes.c_ulong(0)
         s=self.lib.newp_usb_get_ascii(self.id,readBuffer,self.readBufferSize,ctypes.byref(numBytesRead))
         if s<0:
             raise CommError("Reading from power meter was not succesful and returned " + str(s))
-        return readBuffer.value
+        return readBuffer.value.decode()
 
        
     def readFloat(self,queryString):
